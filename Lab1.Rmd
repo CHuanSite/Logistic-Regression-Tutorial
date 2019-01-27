@@ -9,22 +9,166 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+We will discuss about the following tips for implementing logistic regression:
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+* Plot the empirical logits
+* Residual analysis
+* Goodness-of-fit test
+* General process of data analysis
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r, message = FALSE, warning = FALSE}
+# install.packages("Sleuth3")
+library(tidyverse)
+library(Sleuth3)
+library(dplyr)
+library(car)
+library(ggplot2)
 ```
 
-## Including Plots
+In a study of the Krunnit Islands archipelago, researchers presented results of extensive bird surveys taken over four decades. They visited each island several times, cataloguing species. If a species was found on a specific island in 1949, it was considered to be at risk of extinction for the next survey of the island in 1959. If it was not found in 1959, it was counted as an “extinction”, even though it might reappear later. This data frame contains data on island size, number of species at risk to become extinct and number of extinctions.
 
-You can also embed plots, for example:
+Scientists agree that preserving certain habitats in their natural states is necessary to slow the accelerating rate of species extinctions. But they are divided on how to construct such reserves. Given a finite amount of available land, is it better to have many small reserves or a few large one? Central to the debate on this question are observational studies of what has happened in island archipelagos, where nearly the same fauna tries to survive on islands of different sizes.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+attach(case2101)
+case2101 %>% dim
+case2101
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+Exist <- AtRisk - Extinct
+y <- cbind(Extinct, Exist) %>% as.matrix
+y
+```
+
+
+## Scatter Plot of the Sample/Empirical Logits
+```{r}
+plot(log(Area), logit(Extinct/AtRisk), main = "Relationship between LogitOdd and LogArea")
+```
+
+```{r}
+dat_plot <- data.frame(logArea = log(Area), logitRatio = logit(Extinct/AtRisk))
+ggplot(dat_plot, aes(x = logArea, y = logitRatio)) + 
+    geom_point() + geom_smooth(method = "lm") + 
+    ggtitle("Relationship between LogitOdd and LogArea") + 
+    theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+# for odds close to 0/1, small adjustment for visualization
+dat_plot_adj <- data.frame(logArea = log(Area), logitRatio = log((Extinct + 0.5)/(AtRisk - Extinct + 0.5)))
+ggplot(dat_plot_adj, aes(x = logArea, y = logitRatio)) + 
+    geom_point() + geom_smooth(method = "lm") + 
+    ggtitle("Relationship between LogitOdd and LogArea") + 
+    theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+```{r}
+# the resulting plot is close
+model.lm <- lm(logitRatio ~ logArea, dat_plot)  # different but close slope
+summary(model.lm)
+
+model.glm <- glm(y ~ log(Area), family = binomial(link = "logit"))
+model.glm %>% summary
+
+```
+
+
+## Further Discussion of the Example
+What are the underlying assumptions?
+* Same probability for same islands (or islands with same area)
+* Independent extinction. Therefore, whether all assumptions hold true is questionable, but fairly ignorable due to extreme test result and clear linearity
+
+## Generalization/scope of the inference
+The sample is not a subsample of any larger population of islands - no generalization or causal conclusion
+
+## Residual Analysis
+We will focus on deviance residuals and Pearson residuals. They are not the same, but are close and both tend to be normal (as $n_i$ or $N$ increases)
+```{r}
+# both residuals tend to be normal
+residuals(model.glm)  # default deviance residuals
+residuals(model.glm, type = "pearson")  # pearson residuals
+
+residuals(model.glm) %>% hist
+residuals(model.glm, type = "pearson") %>% hist
+```
+
+```{r}
+# check residuals plot for model fitting
+residuals(model.glm) %>% plot
+residuals(model.glm, type = "pearson") %>% plot
+```
+
+## Goodness of Fit Test
+```{r}
+# n_i's all large or N large
+full.glm <- model.glm
+reduced.glm <- glm(y ~ 1, family = binomial(link = "logit"))
+1 - pchisq(deviance(reduced.glm) - deviance(full.glm), df.residual(reduced.glm) -
+               + df.residual(full.glm))
+model.glm %>% summary
+```
+
+Which test to use? rule of thumb:
+* Both work when testing single coefficient
+* Only Drop-in-deviance test works when testing multiple coefficients
+* Generally Drop-in-deviance is more accurate
+* Wald test is handy for variable screening
+
+## Check the interpretation of logistic regression coefficients
+Due to the log transformation, $1$ increase in Area is associated with proportional change of $exp(\beta)$ in odds
+* In this case, try to interpret with n-fold change
+```{r}
+Exist <- AtRisk-Extinct
+y <- cbind(Extinct, Exist) %>% as.matrix
+glm(y ~ log(Area), family = binomial(link = "logit"))
+```
+```{r}
+# 50% reduction in Area (each change of -log(2) in logArea)
+# is associated with a 23% increase in the odds of extinction 
+# (log odds of extinction increase proportionally to log(1.23))
+# beta is log(1.23)/-log(2)
+exp(-log(2) * -0.2971)
+```
+
+```{r}
+# that is just k^beta proportional change in odds
+# for each k-fold change in Area
+# for example, k = 1/2, i.e. Area reduces to 50%
+# odds change by a proportion of
+(1/2)^(model.glm$coefficients[2])
+
+```
+
+```{r}
+# k = 2
+(2)^(model.glm$coefficients[2])
+
+```
+
+```{r}
+# similar interpretation for confidence interval
+confint(model.glm)
+exp(-0.1923/1 * (-log(2))) - 1
+exp(-0.4078/1 * (-log(2))) - 1
+# equivalently
+(1/2) ^ confint(model.glm)[2,2]
+(1/2) ^ confint(model.glm)[2,1] 
+```
+
+## General process of data application
+- Formulate the problem.
+- Explore the data: outliers, NAs, etc.
+- Check model fitting for the full/tentative model.
+    - scatter plots of empirical logits
+    - residual analysis
+    - goodness-of-fit test
+    - link function selection (AIC/BIC)
+    - variable selection/exclusion
+- Fit the final model.
+- Interpretation of estimation, confidence intervals and testing results.
+
