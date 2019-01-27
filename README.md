@@ -1,3 +1,3 @@
 # Logistic-Regression-Tutorial
 
-Tutorial used fo th lab i 
+Tutorial used for the lab on Advanced Methods in Biostatistic III course. 
